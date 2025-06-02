@@ -20,6 +20,11 @@ app.use(bodyParser.json());
 // Serve static files from the 'public' directory
 app.use(express.static(path.join(__dirname, 'public')));
 
+// Add route for standalone Ba9chich listener
+app.get('/ba9chich', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public/ba9chich_standalone.html'));
+});
+
 // API key for Google Gemini (set in .env as API_KEY)
 const apiKey = process.env.API_KEY;
 if (!apiKey) {
@@ -85,33 +90,78 @@ async function arabiziToArabic(text) {
 const server = app.listen(3000, () => console.log('Bridge running at http://localhost:3000'));
 const io = new Server(server);
 
-// Webhook endpoint
+// Webhook endpoint - UPDATED FOR OFFICIAL BA9CHICH PAYLOAD
 app.post('/webhook', async (req, res) => {
-    const { donor, amount, message } = req.body;
-    if (!message) return res.sendStatus(204);
+    console.log("Official Ba9chich Webhook Received!");
+
+    // IMPORTANT: Implement signature verification if Ba9chich provides a secret key and signature header
+    // const receivedSignature = req.headers['x-ba9chich-signature']; // Example header
+    // const BA9CHICH_WEBHOOK_SECRET = process.env.BA9CHICH_WEBHOOK_SECRET;
+    // if (!BA9CHICH_WEBHOOK_SECRET) {
+    //     console.warn("BA9CHICH_WEBHOOK_SECRET is not set. Skipping signature verification. THIS IS INSECURE for production.");
+    // } else if (!isValidBa9chichSignature(req.rawBody || JSON.stringify(req.body), receivedSignature, BA9CHICH_WEBHOOK_SECRET)) {
+    //     console.error("Invalid Ba9chich webhook signature.");
+    //     return res.status(400).send("Invalid signature.");
+    // }
+    // Note: For req.rawBody, you might need to use a different middleware than bodyParser.json(),
+    // or bodyParser.json({ verify: (req, res, buf) => { req.rawBody = buf.toString() } })
+
+    const paymentData = req.body;
+    console.log("Payment Data:", JSON.stringify(paymentData, null, 2));
+
+    const { paymentID, message, donor, amount, asset } = paymentData;
+
+    // Validate required fields based on Ba9chich schema
+    if (typeof paymentID === 'undefined' || typeof amount === 'undefined' || typeof asset === 'undefined') {
+        console.error('Webhook error: Missing required fields (paymentID, amount, or asset).', paymentData);
+        return res.status(400).send('Missing required fields.');
+    }
+
+    if (message && message.trim().length === 0) {
+        // If message is present but empty or just whitespace, treat as no message for TTS
+        console.log('Webhook: Received empty message, will not process for TTS.');
+        return res.status(204).send('Empty message, no action taken.'); 
+    }
+    if (!message) {
+        console.log('Webhook: No message provided.');
+        // If you still want to announce donations with no messages, you could construct a default one here
+        // For now, we only proceed if there's a message to convert & speak
+        // Or, if you want to announce all, remove this and handle null message in arabiziToArabic/TTS logic
+        io.emit('donation_nomessage', { // Emit a different event for no-message donations if needed
+            donor: donor?.username || 'Anonymous',
+            amount: amount,
+            asset: asset
+        });
+        return res.status(204).send('No message, no TTS action.'); 
+    }
   
-    // Fallbacks for missing donor or amount
-    const donorName = donor || 'Anonymous';
-    const donationAmount = amount || 0;
+    const donorName = donor?.username || 'Anonymous';
+    const donationAmount = `${amount} ${asset}`;
   
-    // Convert to Arabic via Gemini
     const arabicText = await arabiziToArabic(message);
   
-    // Create a local URL pointing to our /audio proxy endpoint
     const localTtsUrl = `/audio?text=${encodeURIComponent(arabicText)}`;
     console.log('Emitting local TTS URL to client:', localTtsUrl);
 
-    // Emit donation data including converted text and LOCAL TTS URL
     io.emit('donation', {
+      paymentID, // Include paymentID if you want to use it on the client
       donor: donorName,
-      amount: donationAmount,
+      amount: donationAmount, // Combined amount and asset
       original: message,
       arabicText,
-      ttsUrl: localTtsUrl // Send the local proxy URL
+      ttsUrl: localTtsUrl 
     });
   
-    res.sendStatus(200);
+    res.status(200).send('Webhook received successfully.'); // Send 200 OK to Ba9chich
   });
+
+// Placeholder for signature verification function (you'd need to implement this based on Ba9chich's method)
+// function isValidBa9chichSignature(rawBody, signature, secret) {
+//   const crypto = require('crypto');
+//   // Example: const calculatedSignature = crypto.createHmac('sha256', secret).update(rawBody).digest('hex');
+//   // return crypto.timingSafeEqual(Buffer.from(calculatedSignature), Buffer.from(signature));
+//   return true; // Insecure placeholder
+// }
 
 // Proxy TTS MP3 using ElevenLabs
 app.get('/audio', async (req, res) => {
