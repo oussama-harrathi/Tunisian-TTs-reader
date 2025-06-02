@@ -87,7 +87,9 @@ async function arabiziToArabic(text) {
 }
 
 // Start server
-const server = app.listen(3000, () => console.log('Bridge running at http://localhost:3000'));
+const server = app.listen(3000, '0.0.0.0', () => {
+    console.log('Bridge running at http://0.0.0.0:3000');
+});
 const io = new Server(server);
 
 // Webhook endpoint - UPDATED FOR OFFICIAL BA9CHICH PAYLOAD
