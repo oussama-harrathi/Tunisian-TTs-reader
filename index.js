@@ -94,6 +94,7 @@ const io = new Server(server);
 
 // Webhook endpoint - UPDATED FOR OFFICIAL BA9CHICH PAYLOAD
 app.post('/webhook', async (req, res) => {
+    console.log("!!!!!!!!!! /webhook ENDPOINT HIT !!!!!!!!!!");
     console.log("Official Ba9chich Webhook Received!");
 
     // IMPORTANT: Implement signature verification if Ba9chich provides a secret key and signature header
