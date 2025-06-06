@@ -2,6 +2,7 @@
 const socket = io(); // Assuming socket.io.js is loaded globally before this script
 let unlocked = false;
 const logEl = document.getElementById('log');
+let ttsThreshold = 0; // Default to 0, meaning any amount is allowed
 
 const TTS_DELAY_MS = 4000; // Delay in milliseconds (3.5 seconds)
 const donationQueue = [];
@@ -16,10 +17,16 @@ function log(msg) {
 
 document.addEventListener('DOMContentLoaded', () => {
   const enableBtn = document.getElementById('enableBtn');
+  const ttsControls = document.getElementById('tts-controls');
+  const thresholdBtns = document.querySelectorAll('.threshold-btn');
+
   if (enableBtn) {
     enableBtn.onclick = function() {
       unlocked = true;
       enableBtn.style.display = 'none';
+      if (ttsControls) {
+        ttsControls.style.display = 'block'; // Show controls
+      }
       log('Audio unlocked by user click.');
 
       try {
@@ -59,6 +66,15 @@ document.addEventListener('DOMContentLoaded', () => {
   } else {
     log('Enable Audio button not found.');
   }
+
+  thresholdBtns.forEach(btn => {
+    btn.addEventListener('click', () => {
+        ttsThreshold = parseInt(btn.dataset.threshold, 10);
+        log(`TTS threshold set to > ${ttsThreshold} diamonds.`);
+        thresholdBtns.forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+    });
+  });
 });
 
 function processQueue() {
@@ -68,9 +84,9 @@ function processQueue() {
 
   isPlaying = true;
   const data = donationQueue.shift();
-  const { donor, amount, original, arabicText, ttsUrl } = data;
+  const { donor, displayAmount, original, arabicText, ttsUrl } = data;
 
-  log(`Processing donation from queue: ${donor} (${amount})`);
+  log(`Processing donation from queue: ${donor} (${displayAmount})`);
 
   setTimeout(() => {
     log('Attempting to play audio from URL: ' + ttsUrl + ` after ${TTS_DELAY_MS / 1000}s delay.`);
@@ -111,11 +127,19 @@ function processQueue() {
 }
 
 socket.on('donation', function(data) {
-  const { donor, amount, original, arabicText, ttsUrl } = data;
+  const { donor, displayAmount, amountValue, assetType, original, arabicText, ttsUrl } = data;
 
-  log('Received donation: DONOR: ' + donor + ' (' + amount + ' DT):');
+  log(`Received donation: DONOR: ${donor} (${displayAmount})`);
   log('   original: ' + original);
   log('   arabic  : ' + arabicText + '\n');
+
+  // New threshold check - FIXED to be more robust
+  if (typeof assetType === 'string' && assetType.toLowerCase() === 'diamonds') {
+    if (amountValue <= ttsThreshold) {
+      log(`--- Donation of ${amountValue} diamonds is below threshold of ${ttsThreshold}. Skipping TTS. ---`);
+      return; // Stop processing this donation
+    }
+  }
 
   if (!unlocked) {
     log('Audio not unlocked by user. Donation queued. Click "Enable Audio" button first.');

@@ -45,7 +45,47 @@ const ai = new GoogleGenAI({ apiKey });
 
 // Helper: Use Google Gemini 2.0 Flash API to convert mixed Arabizi → Arabic script
 async function arabiziToArabic(text) {
-  const prompt = `Convert the following Tunisian Arabizi text to fully vocalized (with Harakat/Tashkeel) Arabic script that best reflects common Tunisian pronunciation. If the input contains English words (like "bet", "game", "stream") or french words (like "contenu", "non", "merci"), preserve these English words in their original Latin script within the final Arabic output. If you find shortcuts for english words like('btw','IK','pls'), write the full words like('Bythe way','I know','please') Furthermore, if the input contains variations of the name 'gouba', such as 'gbaw', 'goobewi', 'guba', 'ghouba', or similar patterns, please normalize and write them as 'ڨُوبَا' (Gouba, using the letter ڨ for the 'g' sound). also if there is m3kky or similar patterns write it as makki Return ONLY the vocalized Arabic text with preserved English words and the normalized name, and no additional explanation, formatting, or original text. Input: "${text}"`;
+  const prompt = `Convert the following Tunisian Arabizi text into fully vocalized Arabic script that reflects *native Tunisian* pronunciation and spelling, with these exact rules:
+
+1. **Dialectal Pronunciation**  
+   - Render Tunisian sounds exactly: e.g., "ch" → ش, "kh" → خ, "gh" → غ, "dj"/"j" → ج (as pronounced in Tunisia), 7 is  ح, also 9 is ق also 3 is ع also 2 is ء.
+   - Represent long vowels and common elisions: for example, write "أنا" for "ana," "tawa" → "تَوَّا," "yemma" → "يِمَّا."  
+   - **Vowel Ambiguity:** Pay very close attention to context to resolve ambiguity. A common mistake is misinterpreting vowels. For instance, the word "hayet" (life) should be written as **حَيَاةْ** (with an alif), not as "حَيَّةْ". Use the surrounding words to choose the correct meaning and spelling.
+   - For "g" (as in "Gouba"), always use ڨ. For "q" when it's the standard Qāf (e.g., in words of Classical origin), use ق, but if it's spoken "g" in Tunisian, use ڨ.
+
+2. **Tā' Marbūṭa (ة)**  
+   - In final position, **do not** include ة for dialectal words that are not pronounced. Instead, either replace with "ه" if it sounds like /-a/ (e.g., "bhitha" → "بْحِيثَا" becomes "بْحِيثَا" with no ة), or drop it completely if truly silent.  
+   - If the writer clearly intends a Classical/Modern Standard word ending in ة (e.g., "madīnah"), keep ة and vocalize it as normal.
+
+3. **Foreign Words (French, English, etc.)**  
+   - Do **not** translate foreign words into Arabic. Keep them in their original Latin script exactly as they appear.  
+   - Do **not** convert "merci," "please," "content," etc., into Arabic equivalents. Preserve "merci," "please," "contenu," "stream," "game," etc., as-is.
+
+4. **Abbreviations and Chat Shortcuts**  
+   - Expand common shortcuts into full English words, but keep them in Latin script. For instance, "btw" → "By the way," "IK" → "I know," "pls" → "please."  
+   - If an abbreviation in Arabizi is dialectal (e.g., "m3kky" → "ma3akki"), render it phonetically in Arabic ("معَاكِّي").
+
+5. **Name Normalization**  
+   - Any variation of the name "gouba" ("gbaw," "goobewi," "guba," "ghouba," etc.) must become **ڨُوبَا**.  
+   - Any variation of "makki" ("m3kky," "m3ki," etc.) must become **مَاكِّي**.
+
+6. **No Extra Text**  
+   - Return **only** the vocalized Arabic script that a Tunisian speaker would naturally read. Do **not** include any explanations, romanization, punctuation besides standard Arabic diacritics (fatḥa, kasra, ḍamma, shadda, sukun), or markup.  
+   - Do **not** output the original input or any metadata—only the final Arabic line(s).
+
+7. **Examples for Clarity (you must follow these patterns exactly)**  
+   - Input: \`n7eb nemchi na9ra ama manjjmtch zaaaaaab\`  
+     Output: \`نْحِب نَمْشِي نَقْرَا أَمَّا مَا نْجَّمْتْش زَاب\`  
+   - Input: \`sbah elkhir gooba kifech 7alek please\`  
+     Output: \`صْبَاحْ الْخِير ڨُوبَا كِيفِيش حَالِك please\`  
+   - Input: \`m3kky ma t7ebch tl3eb bl3arbiya\`  
+     Output: \`مَاكِّي مَا تْحِبْش تْلْعَبْ بْلْعَرْبِيَّة\`  
+   - Input: \`merci bros\`  
+     Output: \`merci bros\`
+
+Below is the input. Return **only** the fully vocalized Tunisian Arabic text following all rules above. Do **not** add commentaryand pay attention please for all the letters and numbers and the rules.
+
+Input: "${text}"`;
   try {
     const response = await ai.models.generateContent({
       model: 'gemini-2.0-flash',
@@ -120,26 +160,28 @@ app.post('/webhook', async (req, res) => {
         return res.status(400).send('Missing required fields.');
     }
 
+    // Respond immediately to Ba9chich to prevent timeouts and retries
+    res.status(200).send('Webhook received successfully.'); 
+
+    // --- Process the data asynchronously after we've already responded ---
+
     if (message && message.trim().length === 0) {
         // If message is present but empty or just whitespace, treat as no message for TTS
         console.log('Webhook: Received empty message, will not process for TTS.');
-        return res.status(204).send('Empty message, no action taken.'); 
+        return; // Exit after sending 200 OK
     }
     if (!message) {
         console.log('Webhook: No message provided.');
-        // If you still want to announce donations with no messages, you could construct a default one here
-        // For now, we only proceed if there's a message to convert & speak
-        // Or, if you want to announce all, remove this and handle null message in arabiziToArabic/TTS logic
         io.emit('donation_nomessage', { // Emit a different event for no-message donations if needed
             donor: donor?.username || 'Anonymous',
             amount: amount,
-            asset: asset
+            asset: asset?.name
         });
-        return res.status(204).send('No message, no TTS action.'); 
+        return; // Exit after sending 200 OK
     }
   
     const donorName = donor?.username || 'Anonymous';
-    const donationAmount = `${amount} ${asset}`;
+    const donationAmount = `${amount} ${asset?.name || ''}`;
   
     const arabicText = await arabiziToArabic(message);
   
@@ -147,15 +189,17 @@ app.post('/webhook', async (req, res) => {
     console.log('Emitting local TTS URL to client:', localTtsUrl);
 
     io.emit('donation', {
-      paymentID, // Include paymentID if you want to use it on the client
+      paymentID,
       donor: donorName,
-      amount: donationAmount, // Combined amount and asset
+      displayAmount: donationAmount,
+      amountValue: amount,
+      assetType: asset?.name,
       original: message,
       arabicText,
       ttsUrl: localTtsUrl 
     });
   
-    res.status(200).send('Webhook received successfully.'); // Send 200 OK to Ba9chich
+    // The res.status(200) was moved to the top
   });
 
 // Placeholder for signature verification function (you'd need to implement this based on Ba9chich's method)
@@ -173,7 +217,9 @@ app.get('/audio', async (req, res) => {
   try {
     const audioStream = await elevenlabs.textToSpeech.stream("OfGMGmhShO8iL9jCkXy8", {
       text: text,
-      modelId: "eleven_flash_v2_5",
+      modelId: "eleven_multilingual_v2",
+      
+      //modelId: "eleven_flash_v2_5",
       outputFormat: "mp3_44100_128",
     });
 
@@ -204,10 +250,26 @@ app.get('/', (req, res) => {
 <html>
   <head>
     <title>Donation TTS Player</title>
+    <style>
+      body { font-family: sans-serif; display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh; margin: 0; }
+      #enableBtn, .threshold-btn { padding: 8px 15px; border: 1px solid #ccc; background-color: #f0f0f0; cursor: pointer; margin: 5px; border-radius: 5px; }
+      .threshold-btn.active { background-color: #007bff; color: white; border-color: #007bff; font-weight: bold; }
+      #tts-controls { display: none; text-align: center; margin-bottom: 10px; padding: 10px; border: 1px solid #eee; border-radius: 8px; }
+      #log { white-space: pre-wrap; word-wrap: break-word; max-height: 300px; overflow-y: auto; border: 1px solid #ccc; padding: 10px; width: 80%; background-color: #f9f9f9; }
+    </style>
   </head>
-  <body style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh;">
+  <body>
     <button id="enableBtn">Enable Audio</button>
-    <pre id="log" style="white-space: pre-wrap; word-wrap: break-word; max-height: 300px; overflow-y: auto; border: 1px solid #ccc; padding: 10px; width: 80%;"></pre>
+    <div id="tts-controls">
+      <div><strong>TTS Minimum (Diamonds)</strong></div>
+      <button class="threshold-btn active" data-threshold="0">Any</button>
+      <button class="threshold-btn" data-threshold="2">&gt; 2</button>
+      <button class="threshold-btn" data-threshold="5">&gt; 5</button>
+      <button class="threshold-btn" data-threshold="10">&gt; 10</button>
+      <button class="threshold-btn" data-threshold="15">&gt; 15</button>
+      <button class="threshold-btn" data-threshold="20">&gt; 20</button>
+    </div>
+    <pre id="log"></pre>
     <script src="/socket.io/socket.io.js"></script>
     <script src="/client.js"></script>  <!-- Link to our new static JS file -->
   </body>
