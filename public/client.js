@@ -2,7 +2,7 @@
 const socket = io(); // Assuming socket.io.js is loaded globally before this script
 let unlocked = false;
 const logEl = document.getElementById('log');
-let ttsThreshold = 0; // Default to 0, meaning any amount is allowed
+// let ttsThreshold = 0; // This is no longer the source of truth. Server controls it.
 
 const TTS_DELAY_MS = 4000; // Delay in milliseconds (3.5 seconds)
 const donationQueue = [];
@@ -69,12 +69,26 @@ document.addEventListener('DOMContentLoaded', () => {
 
   thresholdBtns.forEach(btn => {
     btn.addEventListener('click', () => {
-        ttsThreshold = parseInt(btn.dataset.threshold, 10);
-        log(`TTS threshold set to > ${ttsThreshold} diamonds.`);
-        thresholdBtns.forEach(b => b.classList.remove('active'));
-        btn.classList.add('active');
+        const thresholdValue = btn.dataset.threshold;
+        log(`UI: Clicked threshold > ${thresholdValue}. Sending to server.`);
+        // Emit the new threshold value to the server
+        socket.emit('set_threshold', thresholdValue);
     });
   });
+});
+
+// NEW: Listen for threshold updates from the server to keep the UI in sync
+socket.on('threshold_update', (serverThreshold) => {
+    log(`SERVER->CLIENT: Threshold updated to > ${serverThreshold}`);
+    const thresholdBtns = document.querySelectorAll('.threshold-btn');
+    thresholdBtns.forEach(btn => {
+        // Use '==' for loose comparison as dataset value is a string
+        if (btn.dataset.threshold == serverThreshold) {
+            btn.classList.add('active');
+        } else {
+            btn.classList.remove('active');
+        }
+    });
 });
 
 function processQueue() {
@@ -133,13 +147,8 @@ socket.on('donation', function(data) {
   log('   original: ' + original);
   log('   arabic  : ' + arabicText + '\n');
 
-  // New threshold check - FIXED to be more robust
-  if (typeof assetType === 'string' && assetType.toLowerCase() === 'diamonds') {
-    if (amountValue <= ttsThreshold) {
-      log(`--- Donation of ${amountValue} diamonds is below threshold of ${ttsThreshold}. Skipping TTS. ---`);
-      return; // Stop processing this donation
-    }
-  }
+  // The client-side threshold check that was here has been REMOVED.
+  // The server now performs this check before emitting the 'donation' event.
 
   if (!unlocked) {
     log('Audio not unlocked by user. Donation queued. Click "Enable Audio" button first.');

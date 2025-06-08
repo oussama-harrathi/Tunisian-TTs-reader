@@ -45,16 +45,28 @@ const ai = new GoogleGenAI({ apiKey });
 
 // Helper: Use Google Gemini 2.0 Flash API to convert mixed Arabizi → Arabic script
 async function arabiziToArabic(text) {
+  // --- Pre-processing Step ---
+  // 1. Define a regex to match most emojis
+  const emojiRegex = /(\u00a9|\u00ae|[\u2000-\u3300]|\ud83c[\ud000-\udfff]|\ud83d[\ud000-\udfff]|\ud83e[\ud000-\udfff])/g;
+  // 2. Remove emojis and trailing single quotes from numbers (e.g., 94' -> 94)
+  let cleanedText = text.replace(emojiRegex, '').replace(/(\d)'/g, '$1').trim();
+
+  // 3. If text is empty after cleaning, don't call the API
+  if (!cleanedText) {
+      console.log('Original text was only emojis or symbols. Skipping API call.');
+      return ''; // Return empty string to prevent TTS
+  }
+
   const prompt = `Convert the following Tunisian Arabizi text into fully vocalized Arabic script that reflects *native Tunisian* pronunciation and spelling, with these exact rules:
 
 1. **Dialectal Pronunciation**  
-   - Render Tunisian sounds exactly: e.g., "ch" → ش, "kh" → خ, "gh" → غ, "dj"/"j" → ج (as pronounced in Tunisia), 7 is  ح, also 9 is ق also 3 is ع also 2 is ء.
+   - Render Tunisian sounds exactly: e.g., "ch" → ش, "kh" → خ, "gh" → غ, "dj"/"j" → ج (as pronounced in Tunisia), 7 is ح, 3 is ع, and 2 is ء.
    - Represent long vowels and common elisions: for example, write "أنا" for "ana," "tawa" → "تَوَّا," "yemma" → "يِمَّا."  
    - **Vowel Ambiguity:** Pay very close attention to context to resolve ambiguity. A common mistake is misinterpreting vowels. For instance, the word "hayet" (life) should be written as **حَيَاةْ** (with an alif), not as "حَيَّةْ". Use the surrounding words to choose the correct meaning and spelling.
    - For "g" (as in "Gouba"), always use ڨ. For "q" when it's the standard Qāf (e.g., in words of Classical origin), use ق, but if it's spoken "g" in Tunisian, use ڨ.
 
 2. **Tā' Marbūṭa (ة)**  
-   - In final position, **do not** include ة for dialectal words that are not pronounced. Instead, either replace with "ه" if it sounds like /-a/ (e.g., "bhitha" → "بْحِيثَا" becomes "بْحِيثَا" with no ة), or drop it completely if truly silent.  
+   - In final position, **do not** include ة for dialectal words that are not pronounced. Instead, either replace with "ه" if it sounds like /-a/, or drop it completely if truly silent.  
    - If the writer clearly intends a Classical/Modern Standard word ending in ة (e.g., "madīnah"), keep ة and vocalize it as normal.
 
 3. **Foreign Words (French, English, etc.)**  
@@ -62,7 +74,7 @@ async function arabiziToArabic(text) {
    - Do **not** convert "merci," "please," "content," etc., into Arabic equivalents. Preserve "merci," "please," "contenu," "stream," "game," etc., as-is.
 
 4. **Abbreviations and Chat Shortcuts**  
-   - Expand common shortcuts into full English words, but keep them in Latin script. For instance, "btw" → "By the way," "IK" → "I know," "pls" → "please."  
+   - Expand common shortcuts into full English words, but in Latin script. For instance, "btw" → "By the way," "IK" → "I know," "pls" → "please."  
    - If an abbreviation in Arabizi is dialectal (e.g., "m3kky" → "ma3akki"), render it phonetically in Arabic ("معَاكِّي").
 
 5. **Name Normalization**  
@@ -70,22 +82,28 @@ async function arabiziToArabic(text) {
    - Any variation of "makki" ("m3kky," "m3ki," etc.) must become **مَاكِّي**.
 
 6. **No Extra Text**  
-   - Return **only** the vocalized Arabic script that a Tunisian speaker would naturally read. Do **not** include any explanations, romanization, punctuation besides standard Arabic diacritics (fatḥa, kasra, ḍamma, shadda, sukun), or markup.  
+   - Return **only** the vocalized Arabic script that a Tunisian speaker would naturally read. Do **not** include any explanations, romanization, or any punctuation besides standard Arabic diacritics.  
    - Do **not** output the original input or any metadata—only the final Arabic line(s).
 
 7. **Examples for Clarity (you must follow these patterns exactly)**  
-   - Input: \`n7eb nemchi na9ra ama manjjmtch zaaaaaab\`  
-     Output: \`نْحِب نَمْشِي نَقْرَا أَمَّا مَا نْجَّمْتْش زَاب\`  
+   - Input: \`n7eb nemchi na9ra ama manjjmtch\`  
+     Output: \`نْحِب نَمْشِي نَقْرَا أَمَّا مَا نْجَّمْتْش\`  
    - Input: \`sbah elkhir gooba kifech 7alek please\`  
      Output: \`صْبَاحْ الْخِير ڨُوبَا كِيفِيش حَالِك please\`  
    - Input: \`m3kky ma t7ebch tl3eb bl3arbiya\`  
      Output: \`مَاكِّي مَا تْحِبْش تْلْعَبْ بْلْعَرْبِيَّة\`  
    - Input: \`merci bros\`  
      Output: \`merci bros\`
+   - Input: \`MAHREZ 94\`
+     Output: \`مَحْرِزْ أَرْبَعَة و تِسْعُون\`
+   - Input: \`chna3mel b 84 diamonds\`
+     Output: \`شْنَعْمِلْ ب أَرْبَعَة و ثَمَانُون diamonds\`
 
-Below is the input. Return **only** the fully vocalized Tunisian Arabic text following all rules above. Do **not** add commentaryand pay attention please for all the letters and numbers and the rules.
+8. **Number to Words Rule**: All numeric digits (0-9) that are part of the main message **must** be converted into their full, vocalized Arabic word equivalents. This is critical for the text-to-speech engine. Do not leave them as digits.
 
-Input: "${text}"`;
+Below is the input. Return **only** the fully vocalized Tunisian Arabic text following all rules above. Do **not** add commentary.
+
+Input: "${cleanedText}"`;
   try {
     const response = await ai.models.generateContent({
       model: 'gemini-2.0-flash',
@@ -119,10 +137,10 @@ Input: "${text}"`;
     }
 
     console.log('Processed Arabic for TTS:', arabic);
-    return arabic || text; // Fallback to original if conversion fails or is empty
+    return arabic || cleanedText; // Fallback to cleaned original if conversion fails
   } catch (err) {
     console.error('Gemini conversion error:', err);
-    return text; // fallback to original
+    return cleanedText; // fallback to cleaned original
   }
 }
 
@@ -131,6 +149,30 @@ const server = app.listen(3000, '0.0.0.0', () => {
     console.log('Bridge running at http://0.0.0.0:3000');
 });
 const io = new Server(server);
+
+let ttsMinimumAmount = 0; // Default: No minimum. Any amount will be read.
+
+io.on('connection', (socket) => {
+    console.log('A client connected. Sending current threshold:', ttsMinimumAmount);
+    // Send the current threshold to the newly connected client so its UI is in sync
+    socket.emit('threshold_update', ttsMinimumAmount);
+
+    socket.on('set_threshold', (newThreshold) => {
+        const threshold = parseInt(newThreshold, 10);
+        if (!isNaN(threshold) && threshold >= 0) {
+            ttsMinimumAmount = threshold;
+            console.log(`SERVER: TTS minimum amount set to > ${ttsMinimumAmount}`);
+            // Broadcast the change to all clients so their UIs update
+            io.emit('threshold_update', ttsMinimumAmount);
+        } else {
+            console.log(`SERVER: Received invalid threshold value from client: ${newThreshold}`);
+        }
+    });
+
+    socket.on('disconnect', () => {
+        console.log('A client disconnected.');
+    });
+});
 
 // Webhook endpoint - UPDATED FOR OFFICIAL BA9CHICH PAYLOAD
 app.post('/webhook', async (req, res) => {
@@ -164,6 +206,14 @@ app.post('/webhook', async (req, res) => {
     res.status(200).send('Webhook received successfully.'); 
 
     // --- Process the data asynchronously after we've already responded ---
+
+    // SERVER-SIDE THRESHOLD CHECK
+    // The buttons are labeled "> 10", so if threshold is 10, amounts of 10 or less are skipped.
+    // We only apply this to 'DIAMONDS'. The check is case-insensitive and handles singular/plural.
+    if (asset?.name?.toLowerCase().startsWith('diamond') && amount <= ttsMinimumAmount) {
+        console.log(`Webhook: Donation of ${amount} ${asset.name} is at or below threshold of ${ttsMinimumAmount}. Skipping TTS processing.`);
+        return; // Exit without processing
+    }
 
     if (message && message.trim().length === 0) {
         // If message is present but empty or just whitespace, treat as no message for TTS
@@ -218,9 +268,13 @@ app.get('/audio', async (req, res) => {
     const audioStream = await elevenlabs.textToSpeech.stream("OfGMGmhShO8iL9jCkXy8", {
       text: text,
       modelId: "eleven_multilingual_v2",
-      
-      //modelId: "eleven_flash_v2_5",
       outputFormat: "mp3_44100_128",
+      voiceSettings: {
+        stability: 0.5,
+        similarity_boost: 0.75,
+        style: 0.0,
+        use_speaker_boost: true
+      }
     });
 
     res.set('Content-Type', 'audio/mpeg');
