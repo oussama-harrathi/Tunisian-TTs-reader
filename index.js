@@ -210,8 +210,8 @@ app.post('/webhook', async (req, res) => {
     // SERVER-SIDE THRESHOLD CHECK
     // The buttons are labeled "> 10", so if threshold is 10, amounts of 10 or less are skipped.
     // We only apply this to 'DIAMONDS'. The check is case-insensitive and handles singular/plural.
-    if (asset?.name?.toLowerCase().startsWith('diamond') && amount <= ttsMinimumAmount) {
-        console.log(`Webhook: Donation of ${amount} ${asset.name} is at or below threshold of ${ttsMinimumAmount}. Skipping TTS processing.`);
+    if (asset?.name?.toLowerCase().startsWith('diamond') && amount < ttsMinimumAmount) {
+        console.log(`Webhook: Donation of ${amount} ${asset.name} is below threshold of ${ttsMinimumAmount}. Skipping TTS processing.`);
         return; // Exit without processing
     }
 
@@ -317,11 +317,11 @@ app.get('/', (req, res) => {
     <div id="tts-controls">
       <div><strong>TTS Minimum (Diamonds)</strong></div>
       <button class="threshold-btn active" data-threshold="0">Any</button>
-      <button class="threshold-btn" data-threshold="2">&gt; 2</button>
-      <button class="threshold-btn" data-threshold="5">&gt; 5</button>
-      <button class="threshold-btn" data-threshold="10">&gt; 10</button>
-      <button class="threshold-btn" data-threshold="15">&gt; 15</button>
-      <button class="threshold-btn" data-threshold="20">&gt; 20</button>
+      <button class="threshold-btn" data-threshold="2">&gt;= 2</button>
+      <button class="threshold-btn" data-threshold="5">&gt;= 5</button>
+      <button class="threshold-btn" data-threshold="10">&gt;= 10</button>
+      <button class="threshold-btn" data-threshold="15">&gt;= 15</button>
+      <button class="threshold-btn" data-threshold="20">&gt;= 20</button>
     </div>
     <pre id="log"></pre>
     <script src="/socket.io/socket.io.js"></script>
