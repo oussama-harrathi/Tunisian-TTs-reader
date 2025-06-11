@@ -48,12 +48,12 @@ document.addEventListener('DOMContentLoaded', () => {
             });
         } else {
             // If not suspended, play silent sound directly
-            const buffer = audioContext.createBuffer(1, 1, 22050);
-            const source = audioContext.createBufferSource();
-            source.buffer = buffer;
-            source.connect(audioContext.destination);
-            source.start(0);
-            log('Silent sound played to initialize audio context.');
+        const buffer = audioContext.createBuffer(1, 1, 22050);
+        const source = audioContext.createBufferSource();
+        source.buffer = buffer;
+        source.connect(audioContext.destination);
+        source.start(0);
+        log('Silent sound played to initialize audio context.');
             processQueue(); // Attempt to process queue now that audio is unlocked
         }
       } catch (e) {
@@ -95,7 +95,7 @@ function processQueue() {
   if (isPlaying || donationQueue.length === 0 || !unlocked) {
     return;
   }
-
+  
   isPlaying = true;
   const data = donationQueue.shift();
   const { donor, displayAmount, original, arabicText, ttsUrl } = data;
@@ -105,38 +105,38 @@ function processQueue() {
   setTimeout(() => {
     log('Attempting to play audio from URL: ' + ttsUrl + ` after ${TTS_DELAY_MS / 1000}s delay.`);
 
-    const audio = new Audio(ttsUrl);
-
-    const onAudioEnd = () => {
-      audio.removeEventListener('ended', onAudioEnd);
-      audio.removeEventListener('error', onAudioError);
+  const audio = new Audio(ttsUrl);
+  
+  const onAudioEnd = () => {
+    audio.removeEventListener('ended', onAudioEnd);
+    audio.removeEventListener('error', onAudioError);
       socket.emit('audioFinished'); // Signal server if needed
       log('Audio finished or failed for: ' + donor + '. Signaled server.');
       isPlaying = false;
       processQueue(); // Check for next item in queue
-    };
+  };
 
-    const onAudioError = (error) => {
-      console.error('Audio playback error:', error);
+  const onAudioError = (error) => {
+    console.error('Audio playback error:', error);
       log('Audio playback error for ' + donor + ': ' + error.message);
       // onAudioEnd will also set isPlaying = false and processQueue()
       // No need to call them twice if error triggers 'ended' or if we ensure onAudioEnd handles cleanup robustly
       // However, directly calling onAudioEnd here ensures cleanup if 'ended' isn't guaranteed on all errors.
-      onAudioEnd(); 
-    };
+    onAudioEnd();
+  };
 
-    audio.addEventListener('ended', onAudioEnd);
-    audio.addEventListener('error', onAudioError);
-
-    audio.play()
-      .then(() => {
+  audio.addEventListener('ended', onAudioEnd);
+  audio.addEventListener('error', onAudioError);
+  
+  audio.play()
+    .then(() => {
         log('Audio playback successfully started for: ' + donor);
-      })
-      .catch(error => {
+    })
+    .catch(error => {
         console.error('Error initiating audio playback for ' + donor + ':', error);
         log('Error initiating audio playback for ' + donor + ': ' + error.message);
         onAudioEnd(); // Ensure queue processing continues even if play() fails
-      });
+    });
   }, TTS_DELAY_MS);
 }
 

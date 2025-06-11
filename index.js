@@ -57,7 +57,7 @@ async function arabiziToArabic(text) {
       return ''; // Return empty string to prevent TTS
   }
 
-  const prompt = `Convert the following Tunisian Arabizi text into fully vocalized Arabic script that reflects *native Tunisian* pronunciation and spelling, with these exact rules:
+  const prompt = `Be smart,use your knowledge in Tunisian and Convert the following Tunisian Arabizi text into fully vocalized Arabic script that reflects *native Tunisian* pronunciation and spelling, with these exact rules:
 
 1. **Dialectal Pronunciation**  
    - Render Tunisian sounds exactly: e.g., "ch" → ش, "kh" → خ, "gh" → غ, "dj"/"j" → ج (as pronounced in Tunisia), 7 is ح, 3 is ع, and 2 is ء.
@@ -99,7 +99,11 @@ async function arabiziToArabic(text) {
    - Input: \`chna3mel b 84 diamonds\`
      Output: \`شْنَعْمِلْ ب أَرْبَعَة و ثَمَانُون diamonds\`
 
-8. **Number to Words Rule**: All numeric digits (0-9) that are part of the main message **must** be converted into their full, vocalized Arabic word equivalents. This is critical for the text-to-speech engine. Do not leave them as digits.
+8. **Numeric Handling**  
+   - If a digit is used **inside an Arabizi word** to represent a consonant (e.g., 7 → ح, 3 → ع, 2 → ء), treat it as that consonant (Rule 1) and **do not** convert it to a number.  
+   - Only convert a sequence of digits into fully vocalized Arabic number words when it is a **stand-alone number** (i.e., surrounded by whitespace or punctuation and **not** immediately attached to Latin letters).
+   - If a digit is immediately followed by a currency or unit abbreviation such as “dt”, “tnd”, “usd”, “eur”, “€”, “$”, “diamonds” …, treat the digit part as a stand-alone number → convert it to words. Keep the abbreviation in Latin script exactly as written.
+   - Examples: "94" → "أَرْبَعَة و تِسْعُون", but "3asba" → "عَصْبَة".
 
 Below is the input. Return **only** the fully vocalized Tunisian Arabic text following all rules above. Do **not** add commentary.
 
@@ -271,7 +275,7 @@ app.get('/audio', async (req, res) => {
       outputFormat: "mp3_44100_128",
       voiceSettings: {
         stability: 0.5,
-        similarity_boost: 0.75,
+        similarity_boost: 0.3,
         style: 0.0,
         use_speaker_boost: true
       }
