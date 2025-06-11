@@ -110,7 +110,7 @@ Below is the input. Return **only** the fully vocalized Tunisian Arabic text fol
 Input: "${cleanedText}"`;
   try {
     const response = await ai.models.generateContent({
-      model: 'gemini-2.0-flash',
+      model: 'gemini-2.5-flash-preview-05-20',
       contents: prompt,
       generationConfig: {
         temperature: 0.0,
