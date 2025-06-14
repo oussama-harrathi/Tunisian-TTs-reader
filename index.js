@@ -5,7 +5,7 @@ import bodyParser from 'body-parser';
 import { Server } from 'socket.io';
 import { ElevenLabsClient } from '@elevenlabs/elevenlabs-js';
 import { Readable } from 'stream';
-import { GoogleGenAI } from '@google/genai';
+import Groq from 'groq-sdk';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
@@ -25,10 +25,10 @@ app.get('/ba9chich', (req, res) => {
   res.sendFile(path.join(__dirname, 'public/ba9chich_standalone.html'));
 });
 
-// API key for Google Gemini (set in .env as API_KEY)
-const apiKey = process.env.API_KEY;
-if (!apiKey) {
-  console.error('ERROR: Missing Google Gemini API_KEY in .env');
+// API Keys
+const groqApiKey = process.env.GROK_API_KEY; // Corrected to match your .env
+if (!groqApiKey) {
+  console.error('ERROR: Missing GROK_API_KEY in .env for Groq');
   process.exit(1);
 }
 
@@ -40,10 +40,13 @@ if (!elevenLabsApiKey) {
 }
 const elevenlabs = new ElevenLabsClient({ apiKey: elevenLabsApiKey });
 
-// Initialize GoogleGenAI
-const ai = new GoogleGenAI({ apiKey });
+// Initialize Groq Client
+const groq = new Groq({ apiKey: groqApiKey });
 
-// --- System Instruction for Gemini: Defined ONCE for efficiency ---
+// --- Cache for frequently translated texts ---
+const translationCache = new Map();
+
+// --- System Instruction for AI (Works for both Gemini and Llama) ---
 const TUNISIAN_ARABIZI_SYSTEM_PROMPT = `You are an expert linguist specializing in Tunisian Arabizi. Your sole function is to convert Tunisian Arabizi text into fully vocalized Arabic script that reflects *native Tunisian* pronunciation and spelling, following these exact rules:
 
 1. **Dialectal Pronunciation**
@@ -86,8 +89,7 @@ const TUNISIAN_ARABIZI_SYSTEM_PROMPT = `You are an expert linguist specializing 
 
 Below is the user input. Respond with **only** the final, fully vocalized Tunisian Arabic text.`;
 
-
-// Helper: Use Google Gemini 2.5 Flash API with System Instructions for faster conversion
+// Helper: Use Groq Llama 3 for ultra-fast conversion
 async function arabiziToArabic(text) {
   // --- Pre-processing Step ---
   const emojiRegex = /(\u00a9|\u00ae|[\u2000-\u3300]|\ud83c[\ud000-\udfff]|\ud83d[\ud000-\udfff]|\ud83e[\ud000-\udfff])/g;
@@ -98,51 +100,58 @@ async function arabiziToArabic(text) {
       return ''; // Return empty string to prevent TTS
   }
 
+  // --- Caching Layer ---
+  if (translationCache.has(cleanedText)) {
+    console.log('CACHE HIT: Returning cached translation for:', cleanedText);
+    return translationCache.get(cleanedText);
+  }
+  console.log('CACHE MISS: Calling Groq API for:', cleanedText);
+  // --- End Caching Layer ---
+
   try {
-    const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash-preview-05-20',
-      // NEW: Using system instructions for the main rules
-      systemInstruction: TUNISIAN_ARABIZI_SYSTEM_PROMPT,
-      // The actual content to convert is now much shorter
-      contents: [{
-        role: "user",
-        parts: [{ text: cleanedText }]
-      }],
-      generationConfig: {
+    const chatCompletion = await groq.chat.completions.create({
+        messages: [
+            {
+                role: 'system',
+                content: TUNISIAN_ARABIZI_SYSTEM_PROMPT,
+            },
+            {
+                role: 'user',
+                content: cleanedText,
+            },
+        ],
+        model: 'llama3-8b-8192', // Use Meta's Llama 3 8B model
         temperature: 0.0,
-        maxOutputTokens: 200 // Max output from Gemini itself
-      }
+        max_tokens: 200,
     });
 
-    // The response structure might be different, let's access it safely
-    let arabic = response.response?.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+    let arabic = chatCompletion.choices[0]?.message?.content?.trim() || '';
+    console.log('Converted Arabic (raw from Groq):', arabic);
 
-    console.log('Converted Arabic (raw from Gemini):', arabic);
-
-    // If Gemini still includes explanations, try to extract the core Arabic part
-    // This is a heuristic and might need refinement based on Gemini's typical verbose output
-    if (arabic && arabic.includes('**')) { // Assuming Gemini might use markdown for emphasis
+    // If the model still includes explanations, try to extract the core Arabic part
+    if (arabic && arabic.includes('**')) { // Assuming model might use markdown
         const boldParts = arabic.match(/\*\*(.*?)\*\*/g);
         if (boldParts && boldParts.length > 0) {
-            // Take the first bold part, assuming it's the most relevant conversion
             arabic = boldParts[0].replace(/\*\*/g, '').trim(); 
         }
     }
-    // Further cleanup: if there are multiple lines, take the first non-empty one
     if (arabic && arabic.includes('\n')) {
         arabic = arabic.split('\n').find(line => line.trim().length > 0) || arabic;
     }
 
-    // Ensure the text is not too long for gTTS
+    // Ensure the text is not too long for ElevenLabs
     if (arabic && arabic.length > 190) {
       arabic = arabic.substring(0, 190);
       console.log('Truncated Arabic for TTS:', arabic);
     }
 
-    console.log('Processed Arabic for TTS:', arabic);
-    return arabic || cleanedText; // Fallback to cleaned original if conversion fails
+    const result = arabic || cleanedText; // Fallback to cleaned original
+    translationCache.set(cleanedText, result); // Save result to cache
+
+    console.log('Processed Arabic for TTS:', result);
+    return result; 
   } catch (err) {
-    console.error('Gemini conversion error:', err);
+    console.error('Groq conversion error:', err);
     return cleanedText; // fallback to cleaned original
   }
 }
