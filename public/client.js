@@ -4,7 +4,7 @@ let unlocked = false;
 const logEl = document.getElementById('log');
 // let ttsThreshold = 0; // This is no longer the source of truth. Server controls it.
 
-const TTS_DELAY_MS = 4000; // Delay in milliseconds (3.5 seconds)
+const TTS_DELAY_MS = 2000; // Delay in milliseconds (3.5 seconds)
 const donationQueue = [];
 let isPlaying = false;
 
