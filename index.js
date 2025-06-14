@@ -43,81 +43,80 @@ const elevenlabs = new ElevenLabsClient({ apiKey: elevenLabsApiKey });
 // Initialize GoogleGenAI
 const ai = new GoogleGenAI({ apiKey });
 
-// Helper: Use Google Gemini 2.0 Flash API to convert mixed Arabizi → Arabic script
+// --- System Instruction for Gemini: Defined ONCE for efficiency ---
+const TUNISIAN_ARABIZI_SYSTEM_PROMPT = `You are an expert linguist specializing in Tunisian Arabizi. Your sole function is to convert Tunisian Arabizi text into fully vocalized Arabic script that reflects *native Tunisian* pronunciation and spelling, following these exact rules:
+
+1. **Dialectal Pronunciation**
+   - Render Tunisian sounds exactly: "ch" → ش, "kh" → خ, "gh" → غ, "dj"/"j" → ج, 7 is ح, 3 is ع, and 2 is ء.
+   - Represent long vowels and elisions: "ana" → "أنا", "tawa" → "تَوَّا," "yemma" → "يِمَّا."
+   - **Vowel Ambiguity:** Use context to resolve ambiguity. E.g., "hayet" (life) must be **حَيَاةْ** (with an alif), not "حَيَّةْ".
+   - "g" (like "Gouba") is always ڨ. "q" is ق for Classical words, but ڨ if spoken as "g" in Tunisian.
+
+2. **Tā' Marbūṭa (ة)**
+   - In final position for dialectal words, do **not** use ة. Replace with "ه" if it sounds like /-a/, or omit if silent.
+   - Keep ة for intended Classical/Modern Standard words (e.g., "madīnah").
+
+3. **Foreign Words (French, English, etc.)**
+   - **Do not** translate. Keep them in their original Latin script (e.g., "merci," "please," "content," "stream," "game").
+
+4. **Abbreviations and Chat Shortcuts**
+   - Expand English shortcuts to full words in Latin script: "btw" → "By the way," "pls" → "please."
+   - Render dialectal Arabizi shortcuts phonetically in Arabic: "m3kky" → "معَاكِّي".
+
+5. **Name Normalization**
+   - Any variation of "gouba" ("gbaw," "goobewi," "guba," etc.) must become **ڨُوبَا**.
+   - Any variation of "makki" ("m3kky," "m3ki," etc.) must become **مَاكِّي**.
+
+6. **No Extra Text**
+   - Return **only** the fully vocalized Arabic script. No explanations, no romanization, no extra punctuation.
+
+7. **Examples (Follow these patterns exactly)**
+   - \`n7eb nemchi na9ra ama manjjmtch\` → \`نْحِب نَمْشِي نَقْرَا أَمَّا مَا نْجَّمْتْش\`
+   - \`sbah elkhir gooba kifech 7alek please\` → \`صْبَاحْ الْخِير ڨُوبَا كِيفِيش حَالِك please\`
+   - \`m3kky ma t7ebch tl3eb bl3arbiya\` → \`مَاكِّي مَا تْحِبْش تْلْعَبْ بْلْعَرْبِيَّة\`
+   - \`merci bros\` → \`merci bros\`
+   - \`MAHREZ 94\` → \`مَحْرِزْ أَرْبَعَة و تِسْعُون\`
+   - \`chna3mel b 84 diamonds\` → \`شْنَعْمِلْ ب أَرْبَعَة و ثَمَانُون diamonds\`
+
+8. **Numeric Handling**
+   - Digits inside an Arabizi word are consonants (7→ح, 3→ع, 2→ء), not numbers.
+   - Convert stand-alone numbers (surrounded by whitespace/punctuation) to vocalized Arabic words.
+   - If a number is followed by a unit (dt, tnd, $, diamonds), convert the number part to words and keep the unit in Latin script.
+   - Examples: "94" → "أَرْبَعَة و تِسْعُون", but "3asba" → "عَصْبَة".
+
+Below is the user input. Respond with **only** the final, fully vocalized Tunisian Arabic text.`;
+
+
+// Helper: Use Google Gemini 2.5 Flash API with System Instructions for faster conversion
 async function arabiziToArabic(text) {
   // --- Pre-processing Step ---
-  // 1. Define a regex to match most emojis
   const emojiRegex = /(\u00a9|\u00ae|[\u2000-\u3300]|\ud83c[\ud000-\udfff]|\ud83d[\ud000-\udfff]|\ud83e[\ud000-\udfff])/g;
-  // 2. Remove emojis and trailing single quotes from numbers (e.g., 94' -> 94)
   let cleanedText = text.replace(emojiRegex, '').replace(/(\d)'/g, '$1').trim();
 
-  // 3. If text is empty after cleaning, don't call the API
   if (!cleanedText) {
       console.log('Original text was only emojis or symbols. Skipping API call.');
       return ''; // Return empty string to prevent TTS
   }
 
-  const prompt = `Be smart,use your knowledge in Tunisian and Convert the following Tunisian Arabizi text into fully vocalized Arabic script that reflects *native Tunisian* pronunciation and spelling, with these exact rules:
-
-1. **Dialectal Pronunciation**  
-   - Render Tunisian sounds exactly: e.g., "ch" → ش, "kh" → خ, "gh" → غ, "dj"/"j" → ج (as pronounced in Tunisia), 7 is ح, 3 is ع, and 2 is ء.
-   - Represent long vowels and common elisions: for example, write "أنا" for "ana," "tawa" → "تَوَّا," "yemma" → "يِمَّا."  
-   - **Vowel Ambiguity:** Pay very close attention to context to resolve ambiguity. A common mistake is misinterpreting vowels. For instance, the word "hayet" (life) should be written as **حَيَاةْ** (with an alif), not as "حَيَّةْ". Use the surrounding words to choose the correct meaning and spelling.
-   - For "g" (as in "Gouba"), always use ڨ. For "q" when it's the standard Qāf (e.g., in words of Classical origin), use ق, but if it's spoken "g" in Tunisian, use ڨ.
-
-2. **Tā' Marbūṭa (ة)**  
-   - In final position, **do not** include ة for dialectal words that are not pronounced. Instead, either replace with "ه" if it sounds like /-a/, or drop it completely if truly silent.  
-   - If the writer clearly intends a Classical/Modern Standard word ending in ة (e.g., "madīnah"), keep ة and vocalize it as normal.
-
-3. **Foreign Words (French, English, etc.)**  
-   - Do **not** translate foreign words into Arabic. Keep them in their original Latin script exactly as they appear.  
-   - Do **not** convert "merci," "please," "content," etc., into Arabic equivalents. Preserve "merci," "please," "contenu," "stream," "game," etc., as-is.
-
-4. **Abbreviations and Chat Shortcuts**  
-   - Expand common shortcuts into full English words, but in Latin script. For instance, "btw" → "By the way," "IK" → "I know," "pls" → "please."  
-   - If an abbreviation in Arabizi is dialectal (e.g., "m3kky" → "ma3akki"), render it phonetically in Arabic ("معَاكِّي").
-
-5. **Name Normalization**  
-   - Any variation of the name "gouba" ("gbaw," "goobewi," "guba," "ghouba," etc.) must become **ڨُوبَا**.  
-   - Any variation of "makki" ("m3kky," "m3ki," etc.) must become **مَاكِّي**.
-
-6. **No Extra Text**  
-   - Return **only** the vocalized Arabic script that a Tunisian speaker would naturally read. Do **not** include any explanations, romanization, or any punctuation besides standard Arabic diacritics.  
-   - Do **not** output the original input or any metadata—only the final Arabic line(s).
-
-7. **Examples for Clarity (you must follow these patterns exactly)**  
-   - Input: \`n7eb nemchi na9ra ama manjjmtch\`  
-     Output: \`نْحِب نَمْشِي نَقْرَا أَمَّا مَا نْجَّمْتْش\`  
-   - Input: \`sbah elkhir gooba kifech 7alek please\`  
-     Output: \`صْبَاحْ الْخِير ڨُوبَا كِيفِيش حَالِك please\`  
-   - Input: \`m3kky ma t7ebch tl3eb bl3arbiya\`  
-     Output: \`مَاكِّي مَا تْحِبْش تْلْعَبْ بْلْعَرْبِيَّة\`  
-   - Input: \`merci bros\`  
-     Output: \`merci bros\`
-   - Input: \`MAHREZ 94\`
-     Output: \`مَحْرِزْ أَرْبَعَة و تِسْعُون\`
-   - Input: \`chna3mel b 84 diamonds\`
-     Output: \`شْنَعْمِلْ ب أَرْبَعَة و ثَمَانُون diamonds\`
-
-8. **Numeric Handling**  
-   - If a digit is used **inside an Arabizi word** to represent a consonant (e.g., 7 → ح, 3 → ع, 2 → ء), treat it as that consonant (Rule 1) and **do not** convert it to a number.  
-   - Only convert a sequence of digits into fully vocalized Arabic number words when it is a **stand-alone number** (i.e., surrounded by whitespace or punctuation and **not** immediately attached to Latin letters).
-   - If a digit is immediately followed by a currency or unit abbreviation such as “dt”, “tnd”, “usd”, “eur”, “€”, “$”, “diamonds” …, treat the digit part as a stand-alone number → convert it to words. Keep the abbreviation in Latin script exactly as written.
-   - Examples: "94" → "أَرْبَعَة و تِسْعُون", but "3asba" → "عَصْبَة".
-
-Below is the input. Return **only** the fully vocalized Tunisian Arabic text following all rules above. Do **not** add commentary.
-
-Input: "${cleanedText}"`;
   try {
     const response = await ai.models.generateContent({
       model: 'gemini-2.5-flash-preview-05-20',
-      contents: prompt,
+      // NEW: Using system instructions for the main rules
+      systemInstruction: TUNISIAN_ARABIZI_SYSTEM_PROMPT,
+      // The actual content to convert is now much shorter
+      contents: [{
+        role: "user",
+        parts: [{ text: cleanedText }]
+      }],
       generationConfig: {
         temperature: 0.0,
         maxOutputTokens: 200 // Max output from Gemini itself
       }
     });
-    let arabic = response.text?.trim();
+
+    // The response structure might be different, let's access it safely
+    let arabic = response.response?.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+
     console.log('Converted Arabic (raw from Gemini):', arabic);
 
     // If Gemini still includes explanations, try to extract the core Arabic part
